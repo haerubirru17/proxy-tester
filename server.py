@@ -11,13 +11,14 @@ FastAPI wrapper untuk proxy_tester.py:
 Auth: query param token, dibandingkan dengan env PROXY_TOKEN.
 TLS:  env SSL_CERT / SSL_KEY (uvicorn).
 """
+import argparse
 import csv
 import io
 import os
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fastapi import FastAPI, HTTPException, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,21 +59,28 @@ def _gc_jobs():
 def _run_job(job_id: str, proxies: list, opts: dict):
     state = JOBS[job_id]
     state["total"] = len(proxies)
-    with ThreadPoolExecutor(max_workers=opts["threads"]) as ex:
-        futs = {ex.submit(test_proxy, pr, opts): pr for pr in proxies}
-        for i, fut in enumerate(
-                __import__("concurrent.futures", fromlist=["as_completed"]
-                           ).as_completed(futs), 1):
-            r = fut.result()
-            state["results"].append(r)
-            state["done"] = i
-            state["log"].append({
-                "host": f'{r["host"]}:{r["port"]}',
-                "alive": r["alive"],
-                "total": r["total"],
-                "grade": r["grade"],
-                "note": r.get("country") if r["alive"] else r.get("alive_note", ""),
-            })
+    # test_proxy mengharapkan objek ber-atribut (argparse.Namespace), bukan dict
+    ns = argparse.Namespace(
+        threads=opts["threads"], country=opts["country"],
+        stability=opts["stability"], timeout=opts["timeout"],
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=opts["threads"]) as ex:
+            futs = {ex.submit(test_proxy, pr, ns): pr for pr in proxies}
+            for i, fut in enumerate(as_completed(futs), 1):
+                r = fut.result()
+                state["results"].append(r)
+                state["done"] = i
+                state["log"].append({
+                    "host": f'{r["host"]}:{r["port"]}',
+                    "alive": r["alive"],
+                    "total": r["total"],
+                    "grade": r["grade"],
+                    "note": r.get("country") if r["alive"] else r.get("alive_note", ""),
+                })
+    except Exception as e:  # jangan biarkan job menggantung tanpa jejak
+        state["error"] = f"{type(e).__name__}: {e}"
+        state["done"] = state["total"]
 
 
 @app.get("/health")
