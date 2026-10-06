@@ -86,7 +86,9 @@ stabilitas → Cloudflare. Skor 0–100 per proxy.</div>
   </div>
   <div style="margin-top:14px">
     <button id="go">⚡ Mulai Uji</button>
+    <button id="stop" style="display:none;background:var(--bad);box-shadow:0 4px 0 #991b1b;margin-top:8px">⏹ Hentikan Job</button>
     <div class="err" id="err"></div>
+    <div id="resume" style="display:none;margin-top:10px;font-size:.9rem"></div>
   </div>
 
   <div id="progressWrap">
@@ -151,6 +153,8 @@ document.getElementById('go').onclick = async () => {
   const token = document.getElementById('token').value.trim();
   if (!picked.length) return err('Pilih minimal satu file .txt');
   if (!token) return err('Isi token akses');
+  // simpan supaya bisa resume kalau halaman ke-reload
+  localStorage.setItem('pt_token', token);
 
   const fd = new FormData();
   fd.append('token', token);
@@ -165,11 +169,34 @@ document.getElementById('go').onclick = async () => {
     const r = await fetch(API + '/api/test', {method:'POST', body: fd});
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     const {job, proxies, file_stats} = await r.json();
+    curJob = job;
+    localStorage.setItem('pt_job', job);
     fl.innerHTML += ' — ' + file_stats.map(
       s=>`${s.file}: ${s.ok} baru${s.dup?`, ${s.dup} dup`:''}`).join(' | ');
+    log.innerHTML = '';
+    stopBtn.style.display = 'inline-block';
     poll(job, token, proxies, go);
   } catch(e){ err('Gagal mulai: ' + e.message); go.disabled = false; }
 };
+
+// --- resume: kalau ada job tersimpan, tawarkan lanjut pantau ---
+let curJob = null;
+(function restore(){
+  const t = localStorage.getItem('pt_token'), j = localStorage.getItem('pt_job');
+  const box = document.getElementById('resume');
+  if (t) document.getElementById('token').value = t;
+  if (t && j){
+    box.style.display = 'block';
+    box.innerHTML = `💾 Job sebelumnya (<code>${j}</code>) tersimpan. ` +
+      `<button style="width:auto;padding:6px 14px;font-size:.85rem" id="resumeBtn">` +
+      `Lanjut pantau</button>`;
+    document.getElementById('resumeBtn').onclick = () => {
+      curJob = j; box.style.display = 'none';
+      stopBtn.style.display = 'inline-block';
+      poll(j, t, 0, document.getElementById('go'));
+    };
+  }
+})();
 
 async function poll(job, token, total, go){
   const wrap = document.getElementById('progressWrap'),
@@ -178,14 +205,17 @@ async function poll(job, token, total, go){
         log = document.getElementById('log');
   wrap.style.display = 'block'; log.innerHTML = '';
   const t0 = Date.now();
+  let failCount = 0;
   const timer = setInterval(async () => {
     try {
       const s = await (await fetch(
         `${API}/api/status?token=${token}&job=${job}`)).json();
+      failCount = 0; err('');
       bar.style.width = (s.total ? 100*s.done/s.total : 0) + '%';
       const eta = s.done ? Math.round((Date.now()-t0)/s.done*(s.total-s.done)) : null;
       ptext.textContent = `${s.done}/${s.total} proxy selesai` +
-        (eta && !s.finished ? ` · ±${eta}s tersisa` : ' · ✅');
+        (s.stopped ? ' · ⏹ dihentikan' :
+         eta && !s.finished ? ` · ±${eta}s tersisa` : ' · ✅');
       log.innerHTML = s.log.slice(-12).reverse().map(l =>
         `<div class="${l.alive ? (l.total>=85?'ok':l.total>=60?'mid':'bad') : 'bad'}">`+
         `${l.alive?'✓':'✗'} ${l.host} — skor ${l.total} ${l.grade}` +
@@ -193,12 +223,32 @@ async function poll(job, token, total, go){
       if (s.finished){
         clearInterval(timer);
         go.disabled = false;
+        stopBtn.style.display = 'none';
         showResults(job, token);
       }
-    } catch(e){ clearInterval(timer); err('Polling gagal: '+e.message);
-                go.disabled = false; }
+    } catch(e){
+      // jaringan mobile sering drop — jangan langsung menyerah
+      if (++failCount >= 8){
+        clearInterval(timer); go.disabled = false;
+        stopBtn.style.display = 'none';
+        err('Polling gagal berulang: '+e.message+'. Job masih jalan di server — '+
+            'buka ulang halaman dan login dengan token untuk melihat status.');
+      } else {
+        ptext.textContent = '⚠ koneksi terputus, mencoba ulang… ('+failCount+'/8)';
+      }
+    }
   }, 1500);
 }
+
+const stopBtn = document.getElementById('stop');
+stopBtn.onclick = async () => {
+  const token = document.getElementById('token').value.trim();
+  stopBtn.disabled = true;
+  try { await fetch(`${API}/api/stop`,
+    {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+     body:`token=${encodeURIComponent(token)}&job=${encodeURIComponent(curJob)}`});
+  } finally { stopBtn.disabled = false; }
+};
 
 async function showResults(job, token){
   const r = await fetch(`${API}/api/results?token=${token}&job=${job}`);

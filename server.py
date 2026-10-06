@@ -63,11 +63,17 @@ def _run_job(job_id: str, proxies: list, opts: dict):
     ns = argparse.Namespace(
         threads=opts["threads"], country=opts["country"],
         stability=opts["stability"], timeout=opts["timeout"],
+        tcp_timeout=opts.get("tcp_timeout", 3),
     )
     try:
         with ThreadPoolExecutor(max_workers=opts["threads"]) as ex:
             futs = {ex.submit(test_proxy, pr, ns): pr for pr in proxies}
             for i, fut in enumerate(as_completed(futs), 1):
+                if state.get("stop"):
+                    for f in futs:
+                        f.cancel()
+                    state["stopped"] = True
+                    return
                 r = fut.result()
                 state["results"].append(r)
                 state["done"] = i
@@ -151,8 +157,21 @@ def status(token: str, job: str):
     return {
         "done": state["done"], "total": state["total"],
         "log": state["log"][-50:],
-        "finished": state["total"] > 0 and state["done"] >= state["total"],
+        "finished": state["total"] > 0 and (state["done"] >= state["total"]
+                                            or state.get("stopped")),
+        "stopped": state.get("stopped", False),
+        "error": state.get("error"),
     }
+
+
+@app.post("/api/stop")
+def stop(token: str = Form(...), job: str = Form(...)):
+    _check(token)
+    state = JOBS.get(job)
+    if not state:
+        raise HTTPException(404, "job tidak ditemukan")
+    state["stop"] = True
+    return {"ok": True}
 
 
 @app.get("/api/results")

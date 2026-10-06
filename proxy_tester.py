@@ -25,6 +25,7 @@ import concurrent.futures
 import csv
 import ipaddress
 import re
+import socket
 import statistics
 import sys
 import time
@@ -251,11 +252,29 @@ def grade(total):
 
 # ----------------------------- Runner ------------------------------------
 
-def test_proxy(pr, args):
+def tcp_prefilter(host, port, timeout=3):
+    """Cek cepat: apakah port TCP bisa dihubungi. None = sehat, str = alasan mati."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return None
+    except OSError as e:
+        return type(e).__name__
+
+def test_proxy(pr, args, prefilter=True):
     r = {
         "raw": pr["raw"], "scheme": pr["scheme"], "host": pr["host"],
         "port": pr["port"], "source": pr["source"],
     }
+    # prefilter TCP murah (3s) — proxy mati tidak perlu menunggu timeout HTTP 10s
+    if prefilter:
+        dead = tcp_prefilter(pr["host"], pr["port"],
+                             timeout=getattr(args, "tcp_timeout", 3))
+        if dead:
+            r.update({"alive": False, "exit_ip": "", "alive_note": f"tcp:{dead}",
+                      "cf": "dead"})
+            r["total"], r["breakdown"] = score(r, args.country)
+            r["grade"] = grade(r["total"])
+            return r
     s = session_for(pr, args.timeout)
     try:
         ok, ip, note = t_liveness(s, args.timeout)
