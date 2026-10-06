@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proxy Tester — uji kualitas proxy berlapis</title>
+<style>
+  :root{
+    --bg:#f4f4fb; --card:#ffffff; --ink:#1e1b4b; --muted:#6b7280;
+    --indigo:#4f46e5; --indigo-dark:#4338ca; --orange:#ea580c;
+    --lav:#eef2ff; --ok:#16a34a; --bad:#dc2626; --warn:#d97706;
+    --radius:18px; --border:3px;
+  }
+  *{box-sizing:border-box; margin:0}
+  body{font-family:'Baloo 2',system-ui,sans-serif; background:var(--bg);
+       color:var(--ink); padding:20px; max-width:900px; margin:0 auto}
+  h1{font-size:1.6rem; margin-bottom:2px}
+  .sub{color:var(--muted); margin-bottom:18px}
+  .card{background:var(--card); border:var(--border) solid var(--lav);
+        border-radius:var(--radius); padding:18px; margin-bottom:16px;
+        box-shadow:0 4px 14px rgba(79,70,229,.08), inset 0 -2px 0 rgba(79,70,229,.05)}
+  label{display:block; font-weight:600; margin:10px 0 4px; font-size:.92rem}
+  input[type=text],input[type=password],input[type=number]{
+    width:100%; padding:10px 12px; border:2px solid var(--lav);
+    border-radius:12px; font-size:1rem; background:var(--lav)}
+  input:focus{outline:2px solid var(--indigo)}
+  .opts{display:flex; gap:12px; flex-wrap:wrap}
+  .opts>div{flex:1; min-width:130px}
+  .drop{border:3px dashed var(--indigo); border-radius:var(--radius);
+        padding:26px; text-align:center; color:var(--indigo);
+        background:var(--lav); cursor:pointer; font-weight:600}
+  .drop.over{background:#e0e7ff}
+  #filelist{margin-top:8px; font-size:.9rem; color:var(--muted)}
+  button{background:var(--indigo); color:#fff; border:none;
+         border-radius:14px; padding:13px 22px; font-size:1.05rem;
+         font-weight:700; cursor:pointer; width:100%;
+         font-family:inherit; box-shadow:0 4px 0 var(--indigo-dark)}
+  button:active{transform:translateY(2px); box-shadow:0 2px 0 var(--indigo-dark)}
+  button:disabled{opacity:.5; cursor:wait}
+  #progressWrap{display:none; margin-top:14px}
+  .bar{height:16px; background:var(--lav); border-radius:8px; overflow:hidden}
+  .bar>div{height:100%; background:linear-gradient(90deg,var(--indigo),#818cf8);
+           width:0; transition:width .4s}
+  #ptext{font-size:.9rem; color:var(--muted); margin:6px 0}
+  #log{max-height:220px; overflow-y:auto; font-size:.85rem;
+       font-family:monospace; background:var(--lav); border-radius:10px;
+       padding:10px; margin-top:8px}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .mid{color:var(--warn)}
+  table{width:100%; border-collapse:collapse; font-size:.88rem}
+  th,td{padding:7px 9px; text-align:left; border-bottom:1px solid var(--lav)}
+  th{background:var(--lav); position:sticky; top:0}
+  .pill{display:inline-block; padding:2px 10px; border-radius:999px;
+        font-weight:700; font-size:.78rem; color:#fff}
+  .g-layak{background:var(--ok)} .g-cukup{background:var(--warn)}
+  .g-buang{background:var(--bad)}
+  #results{display:none; overflow-x:auto}
+  .dl{display:inline-block; margin-top:10px; background:var(--orange);
+      box-shadow:0 4px 0 #c2410c; width:auto; text-decoration:none}
+  .err{color:var(--bad); font-weight:600; margin-top:8px}
+  summary{cursor:pointer; font-weight:600; margin-top:8px}
+  pre{background:var(--lav); padding:10px; border-radius:10px;
+      font-size:.8rem; overflow-x:auto}
+</style>
+</head>
+<body>
+<h1>🧪 Proxy Tester</h1>
+<div class="sub">Uji kualitas proxy berlapis: liveness → geo → latensi →
+stabilitas → Cloudflare. Skor 0–100 per proxy.</div>
+
+<div class="card">
+  <div class="drop" id="drop">📁 Klik / drop file .txt proxy di sini<br>
+    <small>bisa lebih dari satu file — duplikat otomatis dilewati</small>
+  </div>
+  <input type="file" id="files" multiple accept=".txt" hidden>
+  <div id="filelist"></div>
+
+  <label>Token akses</label>
+  <input type="password" id="token" placeholder="token backend">
+  <div class="opts">
+    <div><label>Thread</label>
+      <input type="number" id="threads" value="10" min="1" max="50"></div>
+    <div><label>Negara (opsional)</label>
+      <input type="text" id="country" placeholder="US, ID, …"></div>
+    <div><label>Req stabilitas</label>
+      <input type="number" id="stability" value="20" min="1" max="50"></div>
+  </div>
+  <div style="margin-top:14px">
+    <button id="go">⚡ Mulai Uji</button>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="progressWrap">
+    <div id="ptext"></div>
+    <div class="bar"><div id="bar"></div></div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<div class="card" id="results">
+  <h2 style="margin-bottom:8px">📊 Hasil <span id="rmeta" style="font-weight:400;color:var(--muted);font-size:.85rem"></span></h2>
+  <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+  <a class="dl button" id="dl">⬇ Download CSV</a>
+</div>
+
+<div class="card">
+  <details>
+    <summary>Kriteria skor</summary>
+    <pre>liveness 20 · geo 15 · latensi 20 · stabilitas 30 · cloudflare 15
+
+LAYAK SIGNUP   85-100
+CUKUP BROWSING 60-84
+BUANG          &lt;60</pre>
+  </details>
+  <details>
+    <summary>Format file proxy</summary>
+    <pre>1.2.3.4:8080
+1.2.3.4:8080:user:pass
+http://user:pass@1.2.3.4:8080
+socks5://user:pass@1.2.3.4:1080</pre>
+  </details>
+</div>
+
+<script>
+const API = "https://213.163.196.178.sslip.io:8443";
+let picked = [];
+
+const drop = document.getElementById('drop'),
+      fi = document.getElementById('files'),
+      fl = document.getElementById('filelist');
+drop.onclick = () => fi.click();
+drop.ondragover = e => {e.preventDefault(); drop.classList.add('over');};
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => {e.preventDefault(); drop.classList.remove('over');
+                    addFiles(e.dataTransfer.files);};
+fi.onchange = () => addFiles(fi.files);
+function addFiles(list){
+  for (const f of list) if (f.name.endsWith('.txt')) picked.push(f);
+  renderList();
+}
+function renderList(){
+  fl.innerHTML = picked.length
+    ? picked.map(f=>`${f.name} (${f.size} B)`).join(' · ') : '';
+}
+
+const err = m => document.getElementById('err').textContent = m;
+const gradePill = g => `<span class="pill g-${{ 'LAYAK SIGNUP':'layak',
+  'CUKUP BROWSING':'cukup' }[g] || 'buang'}">${g}</span>`;
+
+document.getElementById('go').onclick = async () => {
+  err('');
+  const token = document.getElementById('token').value.trim();
+  if (!picked.length) return err('Pilih minimal satu file .txt');
+  if (!token) return err('Isi token akses');
+
+  const fd = new FormData();
+  fd.append('token', token);
+  fd.append('threads', document.getElementById('threads').value);
+  fd.append('country', document.getElementById('country').value.trim());
+  fd.append('stability', document.getElementById('stability').value);
+  picked.forEach(f => fd.append('files', f));
+
+  const go = document.getElementById('go');
+  go.disabled = true;
+  try {
+    const r = await fetch(API + '/api/test', {method:'POST', body: fd});
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    const {job, proxies, file_stats} = await r.json();
+    fl.innerHTML += ' — ' + file_stats.map(
+      s=>`${s.file}: ${s.ok} baru${s.dup?`, ${s.dup} dup`:''}`).join(' | ');
+    poll(job, token, proxies, go);
+  } catch(e){ err('Gagal mulai: ' + e.message); go.disabled = false; }
+};
+
+async function poll(job, token, total, go){
+  const wrap = document.getElementById('progressWrap'),
+        bar = document.getElementById('bar'),
+        ptext = document.getElementById('ptext'),
+        log = document.getElementById('log');
+  wrap.style.display = 'block'; log.innerHTML = '';
+  const t0 = Date.now();
+  const timer = setInterval(async () => {
+    try {
+      const s = await (await fetch(
+        `${API}/api/status?token=${token}&job=${job}`)).json();
+      bar.style.width = (s.total ? 100*s.done/s.total : 0) + '%';
+      const eta = s.done ? Math.round((Date.now()-t0)/s.done*(s.total-s.done)) : null;
+      ptext.textContent = `${s.done}/${s.total} proxy selesai` +
+        (eta && !s.finished ? ` · ±${eta}s tersisa` : ' · ✅');
+      log.innerHTML = s.log.slice(-12).reverse().map(l =>
+        `<div class="${l.alive ? (l.total>=85?'ok':l.total>=60?'mid':'bad') : 'bad'}">`+
+        `${l.alive?'✓':'✗'} ${l.host} — skor ${l.total} ${l.grade}` +
+        `${l.note && l.alive ? ' · '+l.note : ''}</div>`).join('');
+      if (s.finished){
+        clearInterval(timer);
+        go.disabled = false;
+        showResults(job, token);
+      }
+    } catch(e){ clearInterval(timer); err('Polling gagal: '+e.message);
+                go.disabled = false; }
+  }, 1500);
+}
+
+async function showResults(job, token){
+  const r = await fetch(`${API}/api/results?token=${token}&job=${job}`);
+  const {count, results} = await r.json();
+  const cols = ['raw','country','city','isp','lat_med','lat_p95','stab_rate',
+                'ip_changed','cf','total','grade'];
+  document.getElementById('rmeta').textContent = `(${count} proxy)`;
+  document.getElementById('thead').innerHTML =
+    '<tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '</tr>';
+  document.getElementById('tbody').innerHTML = results.map(r =>
+    '<tr>' + cols.map(c=>{
+      let v = r[c];
+      if (c==='grade') return `<td>${gradePill(v)}</td>`;
+      if (c==='cf') v = v==='clean' ? '✓ clean' : v==='dead' ? '✗ dead' : '⚠ '+v;
+      if (c==='ip_changed') v = v ? '⚠ berubah' : 'stabil';
+      return `<td>${v ?? ''}</td>`;
+    }).join('') + '</tr>').join('');
+  document.getElementById('dl').href =
+    `${API}/api/results?token=${token}&job=${job}&format=csv`;
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('results').scrollIntoView({behavior:'smooth'});
+}
+</script>
+</body>
+</html>
