@@ -175,13 +175,26 @@ def stop(token: str = Form(...), job: str = Form(...)):
 
 
 @app.get("/api/results")
-def results(token: str, job: str, format: str = "json"):
+def results(token: str, job: str, format: str = "json",
+            min_grade: str = "alive"):
+    """format=txt -> file proxy siap pakai (satu raw per baris).
+    min_grade: alive = semua yang hidup | layak = hanya LAYAK SIGNUP."""
     _check(token)
     state = JOBS.get(job)
     if not state:
         raise HTTPException(404, "job tidak ditemukan")
     rows = [flatten(r) for r in
             sorted(state["results"], key=lambda r: -r["total"])]
+    if format == "txt":
+        if min_grade == "layak":
+            sel = [r for r in rows if r["grade"] == "LAYAK SIGNUP"]
+        else:
+            sel = [r for r in rows if r["alive"]]
+        body = "\n".join(r["raw"] for r in sel) + ("\n" if sel else "")
+        return StreamingResponse(
+            io.StringIO(body), media_type="text/plain",
+            headers={"Content-Disposition":
+                     f'attachment; filename="proxy_ready_{job}.txt"'})
     if format == "csv":
         buf = io.StringIO()
         w = csv.DictWriter(buf, fieldnames=list(rows[0].keys()) if rows else

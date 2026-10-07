@@ -172,8 +172,13 @@ stabilitas → Cloudflare. Skor 0–100 per proxy.</div>
 
 <div class="card" id="results">
   <h2 style="margin-bottom:8px">📊 Hasil <span id="rmeta" style="font-weight:400;color:var(--muted);font-size:.85rem"></span></h2>
+  <div class="row" style="margin-top:0">
+    <input type="checkbox" id="onlyLayak" style="width:auto">
+    <span>Hanya <b>LAYAK SIGNUP</b> (skor ≥ 85) — kalau tidak dicentang,
+    semua proxy hidup ikut</span>
+  </div>
   <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
-  <a class="dl button" id="dl">⬇ Download CSV</a>
+  <a class="dl button" id="dl">⬇ Download proxy siap pakai (.txt)</a>
 </div>
 
 <div class="card">
@@ -406,7 +411,8 @@ function restoreJob(){
   };
   $('dlBtn').onclick = () => {
     window.location.href =
-      `${API}/api/results?token=${encodeURIComponent(TOKEN)}&job=${j}&format=csv`;
+      `${API}/api/results?token=${encodeURIComponent(TOKEN)}&job=${j}` +
+      `&format=txt&min_grade=alive`;
   };
 }
 
@@ -470,7 +476,13 @@ async function showResults(job){
       if (c==='ip_changed') v = v ? '⚠ berubah' : 'stabil';
       return `<td>${v ?? ''}</td>`;
     }).join('') + '</tr>').join('');
-  $('dl').href = `${API}/api/results?token=${encodeURIComponent(TOKEN)}&job=${job}&format=csv`;
+  $('dl').onclick = e => {
+    e.preventDefault();
+    const g = $('onlyLayak').checked ? 'layak' : 'alive';
+    window.location.href =
+      `${API}/api/results?token=${encodeURIComponent(TOKEN)}&job=${job}` +
+      `&format=txt&min_grade=${g}`;
+  };
   $('results').style.display = 'block';
   $('results').scrollIntoView({behavior:'smooth'});
 }
