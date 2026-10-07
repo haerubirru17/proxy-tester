@@ -189,11 +189,18 @@ let curJob = null;
     box.style.display = 'block';
     box.innerHTML = `💾 Job sebelumnya (<code>${j}</code>) tersimpan. ` +
       `<button style="width:auto;padding:6px 14px;font-size:.85rem" id="resumeBtn">` +
-      `Lanjut pantau</button>`;
+      `Lanjut pantau</button> ` +
+      `<button style="width:auto;padding:6px 14px;font-size:.85rem;background:var(--orange);box-shadow:0 3px 0 #c2410c" id="dlBtn">` +
+      `⬇ Download laporan</button>`;
     document.getElementById('resumeBtn').onclick = () => {
       curJob = j; box.style.display = 'none';
       stopBtn.style.display = 'inline-block';
       poll(j, t, 0, document.getElementById('go'));
+    };
+    document.getElementById('dlBtn').onclick = () => {
+      // buka laporan CSV job lama langsung
+      window.location.href =
+        `${API}/api/results?token=${encodeURIComponent(t)}&job=${j}&format=csv`;
     };
   }
 })();
