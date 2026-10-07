@@ -42,7 +42,7 @@
   .bar>div{height:100%; background:linear-gradient(90deg,var(--indigo),#818cf8);
            width:0; transition:width .4s}
   #ptext{font-size:.9rem; color:var(--muted); margin:6px 0}
-  #log{max-height:220px; overflow-y:auto; font-size:.85rem;
+  #log{max-height:260px; overflow-y:scroll; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; touch-action:pan-y; font-size:.85rem;
        font-family:monospace; background:var(--lav); border-radius:10px;
        padding:10px; margin-top:8px}
   .ok{color:var(--ok)} .bad{color:var(--bad)} .mid{color:var(--warn)}
